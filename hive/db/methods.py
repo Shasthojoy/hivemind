@@ -1,9 +1,6 @@
 import logging
 from funcy.seqs import first
 from hive.db import conn
-from hive.db.schema import (
-    hive_follows,
-)
 from sqlalchemy import text, select, func
 from decimal import Decimal
 
@@ -109,7 +106,8 @@ async def db_last_block():
 # ------------
 async def get_followers(account: str, skip: int, limit: int):
     sql = """
-    SELECT follower, created_at FROM hive_follows WHERE following = :account
+    SELECT follower, created_at FROM hive_follows2
+    WHERE following = (SELECT id FROM hive_accounts WHERE name = :account)
     AND state = 1 ORDER BY created_at DESC LIMIT :limit OFFSET :skip
     """
     res = query(sql, account=account, skip=int(skip), limit=int(limit))
@@ -118,7 +116,8 @@ async def get_followers(account: str, skip: int, limit: int):
 
 async def get_following(account: str, skip: int, limit: int):
     sql = """
-    SELECT following, created_at FROM hive_follows WHERE follower = :account
+    SELECT following, created_at FROM hive_follows2
+    WHERE follower = (SELECT id FROM hive_accounts WHERE name = :account)
     AND state = 1 ORDER BY created_at DESC LIMIT :limit OFFSET :skip
     """
     res = query(sql, account=account, skip=int(skip), limit=int(limit))
@@ -126,22 +125,22 @@ async def get_following(account: str, skip: int, limit: int):
 
 
 async def following_count(account: str):
-    sql = "SELECT COUNT(*) FROM hive_follows WHERE follower = :a AND state = 1"
+    sql = "SELECT following FROM hive_accounts WHERE name = :a"
     return query_one(sql, a=account)
 
 
 async def follower_count(account: str):
-    sql = "SELECT COUNT(*) FROM hive_follows WHERE following = :a AND state = 1"
+    sql = "SELECT followers FROM hive_accounts WHERE name = :a"
     return query_one(sql, a=account)
 
 
 # evaluate replacing two above methods with this
 async def follow_stats(account: str):
     sql = """
-    SELECT SUM(IF(follower  = :account, 1, 0)) following,
-           SUM(IF(following = :account, 1, 0)) followers
-      FROM hive_follows
-     WHERE state = 1
+    SELECT following,
+           followers
+      FROM hive_accounts
+     WHERE name = :account
     """
     return first(query(sql))
 
@@ -273,11 +272,12 @@ async def get_discussions_by_sort_and_tag(sort, tag, skip, limit, context = None
 
 # returns "homepage" feed for specified account
 async def get_user_feed(account: str, skip: int, limit: int, context: str = None):
+    raise Exception("pending hive_feed_cache.account to INT change")
     sql = """
       SELECT post_id, string_agg(account, ',') accounts
         FROM hive_feed_cache
-       WHERE account IN (SELECT following FROM hive_follows
-                          WHERE follower = :account AND state = 1)
+       WHERE account IN (SELECT following FROM hive_follows2
+                          WHERE follower = (SELECT id FROM hive_accounts WHERE name = :account) AND state = 1)
     GROUP BY post_id
     ORDER BY MIN(created_at) DESC LIMIT :limit OFFSET :skip
     """
